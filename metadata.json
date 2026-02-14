@@ -1,7 +1,9 @@
 {
-  "name": "Refuge AI Help",
+  "name": "RR.DRF ASSISTANT",
   "description": "A high-integrity AI assistant providing verified, real-time news and humanitarian assistance through an animated 3D-style interface.",
   "requestFramePermissions": [
-    "microphone"
+    "microphone",
+    "geolocation",
+    "camera"
   ]
 }

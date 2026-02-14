@@ -1,7 +1,7 @@
 
 import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { CORE_INSTRUCTIONS } from "../constants.tsx";
-import { ModelTier } from "../types";
+import { ModelTier, UserTier } from "../types";
 
 const getAIClient = () => {
   const apiKey = process.env.API_KEY;
@@ -13,9 +13,6 @@ export const detectTamil = (text: string): boolean => /[\u0B80-\u0BFF]/.test(tex
 export const detectArabicScript = (text: string): boolean => /[\u0600-\u06FF]/.test(text);
 export const detectBurmese = (text: string): boolean => /[\u1000-\u109F]/.test(text);
 
-/**
- * Enhanced detection for Malay/Indonesian based on common particles and greeting patterns
- */
 export const detectMalayIndonesian = (text: string): boolean => {
   const keywords = /\b(selamat|pagi|siang|malam|halo|apa|kabar|terima|kasih|saya|kamu|anda|makan|minum|bantuan|tolong|dengan|yang|untuk|adalah|bisa|boleh)\b/i;
   return keywords.test(text);
@@ -24,7 +21,8 @@ export const detectMalayIndonesian = (text: string): boolean => {
 export const sendMessage = async (
   message: string, 
   history: { role: 'user' | 'model', parts: { text: string }[] }[],
-  tier: ModelTier = 'gemini-3-pro-preview',
+  tier: ModelTier = 'gemini-2.5-flash-lite',
+  userTier: UserTier = 'free',
   media?: { data: string, mimeType: string },
   location?: { latitude: number, longitude: number }
 ) => {
@@ -42,16 +40,25 @@ export const sendMessage = async (
   else if (isMalayIndo) languageHint = "\n(Context: User is speaking Malay/Indonesian. Respond appropriately.)";
   else languageHint = "\n(Context: Detect the user's country and language automatically. Respond in their native language with high empathy.)";
 
+  // Enforce tier limits in system instruction
+  const tierContext = `\n[TIER INFO: Current user is on ${userTier.toUpperCase()} plan.]`;
+  
   const config: any = {
-    systemInstruction: CORE_INSTRUCTIONS + languageHint,
+    systemInstruction: CORE_INSTRUCTIONS + languageHint + tierContext,
     temperature: 0.7,
   };
 
-  if (tier === 'gemini-3-pro-preview') {
-    config.thinkingConfig = { thinkingBudget: 32768 };
-  } else if (tier === 'gemini-3-flash-preview') {
-    config.tools = [{ googleSearch: {} }];
-  } else if (tier === 'gemini-2.5-flash') {
+  // PREMIUM ONLY FEATURES
+  if (userTier === 'premium') {
+    if (tier === 'gemini-3-pro-preview') {
+      config.thinkingConfig = { thinkingBudget: 32768 };
+    } else if (tier === 'gemini-3-flash-preview') {
+      config.tools = [{ googleSearch: {} }];
+    }
+  }
+
+  // Maps grounding available for both to assist in humanitarian efforts
+  if (tier === 'gemini-2.5-flash') {
     config.tools = [{ googleMaps: {} }];
     if (location) {
       config.toolConfig = {
@@ -78,7 +85,7 @@ export const sendMessage = async (
     return null;
   }).filter((s): s is { title: string; uri: string } => s !== null) || [];
 
-  return { text, sources };
+  return { text, sources, modelUsed: tier };
 };
 
 export const generateImage = async (prompt: string, aspectRatio: string = "1:1") => {
@@ -87,16 +94,6 @@ export const generateImage = async (prompt: string, aspectRatio: string = "1:1")
     model: 'gemini-3-pro-image-preview',
     contents: { parts: [{ text: prompt }] },
     config: { imageConfig: { aspectRatio, imageSize: "1K" } }
-  });
-  const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
-  return part ? `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` : null;
-};
-
-export const editImage = async (prompt: string, base64Image: string, mimeType: string) => {
-  const ai = getAIClient();
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-image',
-    contents: { parts: [{ inlineData: { data: base64Image, mimeType } }, { text: prompt }] }
   });
   const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
   return part ? `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` : null;
@@ -122,21 +119,26 @@ export const generateVideo = async (prompt: string, base64Image?: string, mimeTy
   return null;
 };
 
-export const textToSpeech = async (text: string) => {
+export const textToSpeech = async (text: string, userTier: UserTier = 'free') => {
   const ai = getAIClient();
   
   const isTamil = detectTamil(text);
   const isRohingya = detectArabicScript(text);
 
   let toneInstruction = "Speak this in its native language clearly";
-  let voiceName = 'Zephyr'; // Default voice
+  let voiceName = 'Zephyr'; 
   
-  if (isTamil) {
-    toneInstruction = "Speak this in Tamil with a more formal yet warm tone";
-    voiceName = 'Kore'; // Kore provides a balanced, warm yet professional profile
-  } else if (isRohingya) {
-    toneInstruction = "Speak this in Rohingya with a deeply empathetic, supportive, and comforting tone";
-    voiceName = 'Puck'; // Puck is optimized for soft, empathetic, and gentle output
+  // Premium users get access to more natural multi-lingual voices
+  if (userTier === 'premium') {
+    if (isTamil) {
+      toneInstruction = "Speak this in Tamil with a more formal yet warm tone";
+      voiceName = 'Kore'; 
+    } else if (isRohingya) {
+      toneInstruction = "Speak this in Rohingya with a deeply empathetic, supportive, and comforting tone";
+      voiceName = 'Puck'; 
+    } else {
+      voiceName = 'Charon'; // Premium standard voice
+    }
   }
 
   const response = await ai.models.generateContent({
