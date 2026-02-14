@@ -1,0 +1,7 @@
+{
+  "name": "Refuge AI Help",
+  "description": "A high-integrity AI assistant providing verified, real-time news and humanitarian assistance through an animated 3D-style interface.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
